@@ -147,8 +147,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<int, List<AuthAccount>> pendingTransfer = {};
   int? transferId;
   int? transferSize;
-  @override void initState() { super.initState(); _load(); timer = Timer.periodic(const Duration(seconds: 1), (_) { if(mounted) setState(() => now = DateTime.now()); }); }
-  @override void dispose() { timer?.cancel(); super.dispose(); }
+  @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); loadProtection(); _load(); timer = Timer.periodic(const Duration(seconds: 1), (_) { if(mounted) setState(() => now = DateTime.now()); }); }
+  @override void dispose() { WidgetsBinding.instance.removeObserver(this); timer?.cancel(); super.dispose(); }
   Future<void> _load() async {
     try { final value = await storage.read(key: 'easy_auth_accounts_v1'); if(value != null) accounts.addAll(deserializeAccounts(value)); }
     catch (e) { if(mounted) _message('Unable to read encrypted storage: $e'); }
@@ -327,7 +327,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   ]);
   Widget _infoPage() {
     if(section == 4) return ListView(padding: const EdgeInsets.all(24), children: [Text('Settings', style: Theme.of(context).textTheme.headlineMedium), const SizedBox(height: 20), const Text('Appearance'), for(final m in ThemeMode.values) RadioListTile<ThemeMode>(title: Text(m.name.toUpperCase()), value: m, groupValue: widget.mode, onChanged: (v) { if(v != null) widget.onModeChanged(v); }), SwitchListTile(title: const Text('Hide codes'), subtitle: const Text('Conceal codes until you reveal them'), value: hideCodes, onChanged: (v) => setState(() => hideCodes = v))]);
-    if(section == 1) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Your accounts are stored using operating-system secure storage. App PIN and biometric lock are planned; do not assume the app is locked yet.', textAlign: TextAlign.center)));
+    if(section == 1) return ListView(padding: const EdgeInsets.all(20), children: [
+      Text('App Protection', style: Theme.of(context).textTheme.headlineMedium),
+      const SizedBox(height: 12),
+      ListTile(leading: const Icon(Icons.pin), title: Text(pinEnabled ? 'Change PIN' : 'Set PIN'), subtitle: const Text('6–12 digit security PIN'), onTap: configurePin),
+      if(pinEnabled) ListTile(leading: const Icon(Icons.lock_open), title: const Text('Disable PIN'), onTap: disablePin),
+      SwitchListTile(secondary: const Icon(Icons.fingerprint), title: const Text('Biometric unlock'), subtitle: const Text('Requires enrolled biometrics and PIN'), value: biometricEnabled, onChanged: configureBiometric),
+      if(pinEnabled) ListTile(leading: const Icon(Icons.timer_outlined), title: const Text('Auto-lock'), subtitle: Text(autoLockSeconds == 0 ? 'Immediately' : 'After $autoLockSeconds seconds'), trailing: DropdownButton<int>(value: [0,15,30,60,300].contains(autoLockSeconds) ? autoLockSeconds : 30, items: const [DropdownMenuItem(value: 0, child: Text('Immediately')), DropdownMenuItem(value: 15, child: Text('15 sec')), DropdownMenuItem(value: 30, child: Text('30 sec')), DropdownMenuItem(value: 60, child: Text('1 min')), DropdownMenuItem(value: 300, child: Text('5 min'))], onChanged: (v) { if(v != null) configureAutoLock(v); })),
+    ]);
     if(section == 2) return ListView(padding: const EdgeInsets.all(24), children: [
       Text('Backup & Restore', style: Theme.of(context).textTheme.headlineMedium),
       const SizedBox(height: 12),
@@ -377,6 +384,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       })),
       Padding(padding: const EdgeInsets.all(14), child: Row(children: [Text('Accounts (${accounts.length})'), const Spacer(), FilledButton.icon(onPressed: () => showModalBottomSheet(context: context, builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [ListTile(leading: const Icon(Icons.qr_code_scanner), title: const Text('Scan QR code (Android)'), onTap: () { Navigator.pop(ctx); _scan(); }), ListTile(leading: const Icon(Icons.key), title: const Text('Enter setup key'), onTap: () { Navigator.pop(ctx); _addManual(); })]))), icon: const Icon(Icons.add), label: const Text('Add Account'))]))
     ]);
+    if(!protectionLoaded) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if(locked) return lockScreen();
     return Scaffold(appBar: wide ? null : AppBar(title: const Text('Easy Authenticator')), drawer: wide ? null : Drawer(child: SafeArea(child: _navigation(false))), body: loading ? const Center(child: CircularProgressIndicator()) : Row(children: [if(wide) SizedBox(width: 235, child: _navigation(true)), if(wide) const VerticalDivider(width: 1), Expanded(child: content)]));
 
   }
