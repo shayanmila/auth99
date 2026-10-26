@@ -79,6 +79,16 @@ jobs:
           PY
       - name: Build release APK
         run: flutter build apk --release
+      - name: Verify APK signature and package integrity
+        run: |
+          set -e
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          test -n "$APK_SIGNER"
+          "$APK_SIGNER" verify --verbose --print-certs "$APK"
+          unzip -t "$APK" | tail -1
+          echo "APK verified for release publishing"
       - name: Publish Android APK to GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
