@@ -24,6 +24,7 @@ Future<void> main() async {
   if (CloudAuthConfig.isConfigured) {
     try {
       await Supabase.initialize(url: CloudAuthConfig.url, anonKey: CloudAuthConfig.publishableKey);
+      CloudAuthConfig.initialized = true;
     } catch (e) {
       debugPrint('Cloud sign-in unavailable; continuing in offline mode: $e');
     }

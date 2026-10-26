@@ -53,7 +53,7 @@ class _CloudAccountPageState extends State<CloudAccountPage> {
 
   @override
   Widget build(BuildContext context) {
-    final configured = CloudAuthConfig.isConfigured;
+    final configured = CloudAuthConfig.initialized;
     final session = configured ? Supabase.instance.client.auth.currentSession : null;
     return ListView(padding: const EdgeInsets.all(24), children: [
       Text('Cloud Account', style: Theme.of(context).textTheme.headlineMedium),
@@ -92,6 +92,7 @@ class _CloudAccountPageState extends State<CloudAccountPage> {
 }
 
 class CloudAuthConfig {
+  static bool initialized = false;
   static const url = String.fromEnvironment('SUPABASE_URL');
   static const publishableKey = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
   static bool get isConfigured => url.startsWith('https://') && publishableKey.isNotEmpty;
