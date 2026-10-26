@@ -354,8 +354,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok) _message('Could not open the website');
   }
+  Future<int> _importCloudAccounts(List<AuthAccount> incoming) async {
+    final seen = accounts.map((a) => '${a.issuer.toLowerCase()}|${a.name.toLowerCase()}|${a.secret.replaceAll(' ', '').toUpperCase()}').toSet();
+    final unique = <AuthAccount>[];
+    for (final a in incoming) {
+      final signature = '${a.issuer.toLowerCase()}|${a.name.toLowerCase()}|${a.secret.replaceAll(' ', '').toUpperCase()}';
+      if (seen.add(signature)) unique.add(a);
+    }
+    if (unique.isEmpty) return 0;
+    final next = [...accounts, ...unique];
+    await storage.write(key: 'easy_auth_accounts_v1', value: serializeAccounts(next));
+    accounts..clear()..addAll(next);
+    if (mounted) setState(() {});
+    return unique.length;
+  }
   Widget _infoPage() {
-    if (section == 5) return const CloudAccountPage();
+    if (section == 5) return CloudAccountPage(localAccounts: accounts, importAccounts: _importCloudAccounts);
     if(section == 4) return ListView(padding: const EdgeInsets.all(24), children: [Text('Settings', style: Theme.of(context).textTheme.headlineMedium), const SizedBox(height: 20), const Text('Appearance'), for(final m in ThemeMode.values) RadioListTile<ThemeMode>(title: Text(m.name.toUpperCase()), value: m, groupValue: widget.mode, onChanged: (v) { if(v != null) widget.onModeChanged(v); }), const Divider(height: 28), const Text('Text size'), Slider(value: widget.textScale, min: 0.85, max: 1.4, divisions: 11, label: '${(widget.textScale * 100).round()}%', onChanged: widget.onTextScaleChanged), Text('Preview • ${(widget.textScale * 100).round()}%'), const SizedBox(height: 12), const Text('Font styling'), for(final style in ['Default', 'Serif', 'Mono']) RadioListTile<String>(title: Text(style), value: style, groupValue: widget.fontStyle, onChanged: (v) { if(v != null) widget.onFontStyleChanged(v); }), const Divider(height: 28), SwitchListTile(title: const Text('Hide codes'), subtitle: const Text('Conceal codes until you reveal them'), value: hideCodes, onChanged: (v) => setState(() => hideCodes = v))]);
     if(section == 1) return ListView(padding: const EdgeInsets.all(20), children: [
       Text('App Protection', style: Theme.of(context).textTheme.headlineMedium),
