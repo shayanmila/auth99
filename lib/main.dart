@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'totp.dart';
+import 'migration.dart';
 
 void main() { WidgetsFlutterBinding.ensureInitialized(); runApp(const EasyAuthenticator()); }
 
@@ -30,6 +31,9 @@ class _HomePageState extends State<HomePage> {
   bool loading = true;
   int section = 0;
   bool hideCodes = false;
+  final Map<int, List<AuthAccount>> pendingTransfer = {};
+  int? transferId;
+  int? transferSize;
   @override void initState() { super.initState(); _load(); timer = Timer.periodic(const Duration(seconds: 1), (_) { if(mounted) setState(() => now = DateTime.now()); }); }
   @override void dispose() { timer?.cancel(); super.dispose(); }
   Future<void> _load() async {
@@ -49,10 +53,48 @@ class _HomePageState extends State<HomePage> {
     final result = await showDialog<AuthAccount>(context: context, builder: (ctx) => AlertDialog(title: const Text('Add account manually'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: issuer, decoration: const InputDecoration(labelText: 'Service / issuer')), TextField(controller: name, decoration: const InputDecoration(labelText: 'Account name')), TextField(controller: secret, decoration: const InputDecoration(labelText: 'Base32 setup key'), autocorrect: false, enableSuggestions: false)])), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')), FilledButton(onPressed: () { try { decodeBase32(secret.text); Navigator.pop(ctx, AuthAccount(id: DateTime.now().microsecondsSinceEpoch.toString(), issuer: issuer.text.trim(), name: name.text.trim().isEmpty ? 'Account' : name.text.trim(), secret: secret.text.trim())); } catch (_) { ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Invalid Base32 key'))); } }, child: const Text('Save'))]));
     issuer.dispose(); name.dispose(); secret.dispose(); if(result != null) await _add(result);
   }
+  Future<void> _importTransfer(String raw) async {
+    final batch = parseGoogleMigration(raw);
+    if (transferId != null && (transferId != batch.batchId || transferSize != batch.size)) {
+      pendingTransfer.clear();
+    }
+    transferId = batch.batchId; transferSize = batch.size;
+    pendingTransfer[batch.index] = batch.accounts;
+    if (pendingTransfer.length < batch.size) {
+      _message('Transfer QR ${batch.index + 1}/${batch.size} captured. Scan the remaining QR codes.');
+      return;
+    }
+    final incoming = <AuthAccount>[];
+    for (var i = 0; i < batch.size; i++) {
+      if (!pendingTransfer.containsKey(i)) return;
+      incoming.addAll(pendingTransfer[i]!);
+    }
+    final existing = accounts.map((a) => '${a.issuer.toLowerCase()}|${a.name.toLowerCase()}|${a.secret.replaceAll(' ', '').toUpperCase()}').toSet();
+    final unique = <AuthAccount>[];
+    for (final a in incoming) {
+      final key = '${a.issuer.toLowerCase()}|${a.name.toLowerCase()}|${a.secret.replaceAll(' ', '').toUpperCase()}';
+      if (existing.add(key)) unique.add(a);
+    }
+    final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Import Google Authenticator accounts?'),
+      content: Text('${incoming.length} accounts found across ${batch.size} QR code(s).\n${incoming.length - unique.length} duplicate(s) skipped.\n${unique.length} new account(s) will be added. Existing accounts will remain unchanged.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Import'))],
+    ));
+    if (confirmed == true && unique.isNotEmpty) {
+      try {
+        final next = [...accounts, ...unique];
+        await storage.write(key: 'easy_auth_accounts_v1', value: serializeAccounts(next));
+        accounts..clear()..addAll(next);
+        if (mounted) setState(() {});
+        _message('${unique.length} accounts imported');
+      } catch (_) { _message('Import failed. Existing accounts were not changed.'); }
+    }
+    pendingTransfer.clear(); transferId = null; transferSize = null;
+  }
   Future<void> _scan() async {
     if(defaultTargetPlatform != TargetPlatform.android) { _message('QR camera scanning is currently Android-only. Use manual entry on Windows.'); return; }
     final result = await Navigator.push<String>(context, MaterialPageRoute(builder: (_) => const ScanPage()));
-    if(result != null) { try { await _add(parseOtpAuth(result)); } catch(e) { _message('Invalid QR code: $e'); } }
+    if(result != null) { try { if(result.startsWith('otpauth-migration://')) { await _importTransfer(result); } else { await _add(parseOtpAuth(result)); } } catch(e) { _message('Invalid QR code: $e'); } }
   }
   Future<void> _rename(AuthAccount a) async {
     final issuer = TextEditingController(text: a.issuer);
@@ -106,5 +148,5 @@ class _HomePageState extends State<HomePage> {
 class ScanPage extends StatefulWidget { const ScanPage({super.key}); @override State<ScanPage> createState() => _ScanPageState(); }
 class _ScanPageState extends State<ScanPage> {
   bool scanned = false;
-  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Scan 2FA QR code')), body: MobileScanner(onDetect: (capture) { if(scanned) return; for(final barcode in capture.barcodes) { final raw = barcode.rawValue; if(raw != null && raw.startsWith('otpauth://')) { scanned = true; Navigator.pop(context, raw); return; } } }));
+  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Scan 2FA QR code')), body: MobileScanner(onDetect: (capture) { if(scanned) return; for(final barcode in capture.barcodes) { final raw = barcode.rawValue; if(raw != null && (raw.startsWith('otpauth://') || raw.startsWith('otpauth-migration://'))) { scanned = true; Navigator.pop(context, raw); return; } } }));
 }
