@@ -159,15 +159,30 @@ class _HomePageState extends State<HomePage> {
   }
   Future<void> _restoreBackup() async {
     try {
+      // Android's document picker may reject custom extensions without a MIME mapping.
+      // Use the system's all-files picker and validate the selected backup ourselves.
       final selection = await FilePicker.platform.pickFiles(
-        type: FileType.custom, allowedExtensions: ['eauth'], withData: true,
+        type: Platform.isAndroid ? FileType.any : FileType.custom,
+        allowedExtensions: Platform.isAndroid ? null : ['eauth'],
+        withData: true,
       );
       if(selection == null) return;
-      final data = selection.files.single.bytes;
-      if(data == null) { _message('Unable to read backup file'); return; }
+      final selected = selection.files.single;
+      if(!selected.name.toLowerCase().endsWith('.eauth')) {
+        _message('Select an Easy Authenticator .eauth backup file');
+        return;
+      }
+      Uint8List? data = selected.bytes;
+      if(data == null && selected.path != null) {
+        data = await File(selected.path!).readAsBytes();
+      }
+      if(data == null || data.isEmpty) {
+        _message('Unable to read selected backup file');
+        return;
+      }
       final password = await _backupPassword(confirm: false);
       if(password == null) return;
-      final imported = await BackupCodec.restore(Uint8List.fromList(data), password);
+      final imported = await BackupCodec.restore(data, password);
       if(!mounted) return;
       final seen = accounts.map((a) => '${a.issuer.toLowerCase()}|${a.name.toLowerCase()}|${a.secret.replaceAll(' ', '').toUpperCase()}').toSet();
       final unique = <AuthAccount>[];
@@ -193,7 +208,7 @@ class _HomePageState extends State<HomePage> {
       accounts..clear()..addAll(next);
       if(mounted) setState(() {});
       _message('${restored.length} account(s) restored');
-    } catch (_) { _message('Restore failed: wrong password, damaged file, or unsupported format. Existing accounts were not changed.'); }
+    } catch (e) { _message('Restore failed: $e. Existing accounts were not changed.'); }
   }
   Widget _navigation(bool wide) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
     const Padding(padding: EdgeInsets.all(20), child: Row(children: [Icon(Icons.shield_rounded, color: Color(0xFF3565ED), size: 32), SizedBox(width: 12), Expanded(child: Text('Easy Authenticator', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)))])),
