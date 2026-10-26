@@ -1,0 +1,116 @@
+name: Play Store Signed AAB
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Play Store version name (e.g. 1.0.0)"
+        required: true
+        default: "1.0.0"
+      version_code:
+        description: "Unique increasing Play Store version code"
+        required: true
+        default: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  play-store-aab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Validate signing configuration
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -eu
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required signing secret: $name"
+              exit 1
+            fi
+          done
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > /tmp/easy-auth-upload.jks
+          test -s /tmp/easy-auth-upload.jks
+          keytool -list -keystore /tmp/easy-auth-upload.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null
+      - name: Generate Android project
+        run: flutter create --platforms=android --project-name easy_authenticator .
+      - name: Configure Play Store application
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, re
+          app = Path('android/app/build.gradle.kts')
+          if not app.exists():
+              raise SystemExit('Expected Kotlin Gradle file missing')
+          s = app.read_text()
+          s = s.replace('applicationId = "com.example.easy_authenticator"', 'applicationId = "com.masoomdev.easyauthenticator"')
+          s = s.replace('minSdk = flutter.minSdkVersion', 'minSdk = 26')
+          s = s.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
+          s = s.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 35')
+          if 'applicationId = "com.masoomdev.easyauthenticator"' not in s:
+              raise SystemExit('Package identifier replacement failed')
+          s = s.replace('android {', '''android {
+              signingConfigs {
+                  create("releaseUpload") {
+                      storeFile = file("/tmp/easy-auth-upload.jks")
+                      storePassword = System.getenv("KEYSTORE_PASSWORD")
+                      keyAlias = System.getenv("KEY_ALIAS")
+                      keyPassword = System.getenv("KEY_PASSWORD")
+                  }
+              }
+          ''', 1)
+          s = s.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("releaseUpload")')
+          if 'signingConfig = signingConfigs.getByName("releaseUpload")' not in s:
+              raise SystemExit('Release signing replacement failed')
+          app.write_text(s)
+          activity = Path('android/app/src/main/kotlin/com/example/easy_authenticator/MainActivity.kt')
+          if activity.exists():
+              activity.write_text(activity.read_text().replace('FlutterActivity', 'FlutterFragmentActivity'))
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          m = manifest.read_text()
+          for perm in ('INTERNET', 'CAMERA', 'USE_BIOMETRIC'):
+              if f'android.permission.{perm}' not in m:
+                  m = m.replace('<application', f'<uses-permission android:name="android.permission.{perm}"/>\n    <application', 1)
+          manifest.write_text(m)
+          PY
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Run tests
+        run: flutter test test/totp_test.dart
+      - name: Build signed Play Store AAB
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter build appbundle --release --build-name="${{ inputs.version_name }}" --build-number="${{ inputs.version_code }}" --dart-define=SUPABASE_URL=https://uuvqawlqcnrcdribwava.supabase.co --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_cXKjv4juWoZbJhV0ZUrIrQ_DwzhuENS
+      - name: Verify release bundle
+        run: |
+          set -eu
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          test -s "$AAB"
+          unzip -t "$AAB" | tail -1
+          jarsigner -verify -verbose -certs "$AAB" | grep -E 'jar verified|s = signature was verified' | head -3
+      - name: Upload Play Store AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: Easy-Authenticator-PlayStore-AAB-${{ inputs.version_code }}
+          path: build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove upload key from runner
+        if: always()
+        run: rm -f /tmp/easy-auth-upload.jks
