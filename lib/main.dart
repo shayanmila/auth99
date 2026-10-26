@@ -427,7 +427,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final content = section != 0 ? _infoPage() : Column(children: [
       Padding(padding: const EdgeInsets.fromLTRB(18,18,18,8), child: Row(children: [Expanded(child: TextField(onChanged: (s) => setState(() => query = s), decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: 'Search accounts...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(14))))), const SizedBox(width: 10), IconButton(tooltip: 'Add account', onPressed: _addManual, icon: const Icon(Icons.add_circle_outline))])),
       Expanded(child: LayoutBuilder(builder: (ctx, constraints) {
-        final filtered = accounts.where((a) => '${a.issuer} ${a.name}'.toLowerCase().contains(query.toLowerCase())).toList();
+        final normalizedQuery = query.trim().toLowerCase();
+        final filtered = normalizedQuery.isEmpty ? List<AuthAccount>.of(accounts) : accounts.where((a) => '${a.issuer} ${a.name}'.toLowerCase().contains(normalizedQuery)).toList();
         if(filtered.isEmpty) return Center(child: Text(accounts.isEmpty ? 'No accounts yet. Add your first 2FA account.' : 'No matching accounts.'));
         final cols = constraints.maxWidth >= 1000 ? 3 : constraints.maxWidth >= 620 ? 2 : 1;
         return GridView.builder(padding: const EdgeInsets.all(14), gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisExtent: 205, crossAxisSpacing: 12, mainAxisSpacing: 12), itemCount: filtered.length, itemBuilder: (context,i) => _accountCard(filtered[i]));
