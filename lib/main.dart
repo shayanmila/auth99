@@ -4,16 +4,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'totp.dart';
 
 void main() { WidgetsFlutterBinding.ensureInitialized(); runApp(const EasyAuthenticator()); }
 
-class EasyAuthenticator extends StatelessWidget {
+class EasyAuthenticator extends StatefulWidget {
   const EasyAuthenticator({super.key});
-  @override Widget build(BuildContext context) => MaterialApp(title: 'Easy Authenticator', debugShowCheckedModeBanner: false, theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF5066D9)), useMaterial3: true), darkTheme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B9AFF), brightness: Brightness.dark), useMaterial3: true), themeMode: ThemeMode.system, home: const HomePage());
+  @override State<EasyAuthenticator> createState() => _EasyAuthenticatorState();
+}
+class _EasyAuthenticatorState extends State<EasyAuthenticator> {
+  ThemeMode mode = ThemeMode.system;
+  @override void initState() { super.initState(); SharedPreferences.getInstance().then((p) { if (mounted) setState(() => mode = ThemeMode.values[p.getInt('easy_auth_theme')?.clamp(0,2) ?? 0]); }); }
+  Future<void> setMode(ThemeMode next) async { setState(() => mode = next); final p = await SharedPreferences.getInstance(); await p.setInt('easy_auth_theme', next.index); }
+  @override Widget build(BuildContext context) => MaterialApp(title: 'Easy Authenticator', debugShowCheckedModeBanner: false, theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF5066D9)), useMaterial3: true), darkTheme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B9AFF), brightness: Brightness.dark), useMaterial3: true), themeMode: mode, home: HomePage(mode: mode, onModeChanged: setMode));
 }
 
-class HomePage extends StatefulWidget { const HomePage({super.key}); @override State<HomePage> createState() => _HomePageState(); }
+class HomePage extends StatefulWidget { final ThemeMode mode; final ValueChanged<ThemeMode> onModeChanged; const HomePage({super.key, required this.mode, required this.onModeChanged}); @override State<HomePage> createState() => _HomePageState(); }
 class _HomePageState extends State<HomePage> {
   static const storage = FlutterSecureStorage();
   final List<AuthAccount> accounts = [];
@@ -21,6 +28,8 @@ class _HomePageState extends State<HomePage> {
   DateTime now = DateTime.now();
   String query = '';
   bool loading = true;
+  int section = 0;
+  bool hideCodes = false;
   @override void initState() { super.initState(); _load(); timer = Timer.periodic(const Duration(seconds: 1), (_) { if(mounted) setState(() => now = DateTime.now()); }); }
   @override void dispose() { timer?.cancel(); super.dispose(); }
   Future<void> _load() async {
@@ -30,10 +39,10 @@ class _HomePageState extends State<HomePage> {
   }
   Future<void> _save() async { await storage.write(key: 'easy_auth_accounts_v1', value: serializeAccounts(accounts)); if(mounted) setState(() {}); }
   void _message(String text) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text))); }
-  Future<void> _add(AuthAccount account) async { try { decodeBase32(account.secret); accounts.add(account); await _save(); _message('Account added'); } catch(e) { _message('Unable to save account: $e'); } }
+  Future<void> _add(AuthAccount account) async { try { decodeBase32(account.secret); final next = [...accounts, account]; await storage.write(key: 'easy_auth_accounts_v1', value: serializeAccounts(next)); accounts.add(account); if(mounted) setState(() {}); _message('Account added'); } catch(e) { _message('Unable to save account: $e'); } }
   Future<void> _delete(AuthAccount a) async {
     final confirmed = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('Delete account?'), content: Text('Remove ${a.issuer} ${a.name}? This cannot be undone without the original setup secret.'), actions: [TextButton(onPressed: () => Navigator.pop(c,false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c,true), child: const Text('Delete'))]));
-    if(confirmed == true) { accounts.removeWhere((e) => e.id == a.id); try { await _save(); } catch(e) { _message('Unable to save deletion: $e'); } }
+    if(confirmed == true) { try { final next = accounts.where((e) => e.id != a.id).toList(); await storage.write(key: 'easy_auth_accounts_v1', value: serializeAccounts(next)); accounts..clear()..addAll(next); if(mounted) setState(() {}); } catch(e) { _message('Unable to save deletion: $e'); } }
   }
   Future<void> _addManual() async {
     final issuer = TextEditingController(), name = TextEditingController(), secret = TextEditingController();
@@ -45,9 +54,52 @@ class _HomePageState extends State<HomePage> {
     final result = await Navigator.push<String>(context, MaterialPageRoute(builder: (_) => const ScanPage()));
     if(result != null) { try { await _add(parseOtpAuth(result)); } catch(e) { _message('Invalid QR code: $e'); } }
   }
+  Future<void> _rename(AuthAccount a) async {
+    final issuer = TextEditingController(text: a.issuer);
+    final name = TextEditingController(text: a.name);
+    final result = await showDialog<AuthAccount>(context: context, builder: (ctx) => AlertDialog(title: const Text('Edit account'), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: issuer, decoration: const InputDecoration(labelText: 'Service')), TextField(controller: name, decoration: const InputDecoration(labelText: 'Account'))]), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(ctx, AuthAccount(id: a.id, issuer: issuer.text.trim(), name: name.text.trim(), secret: a.secret, digits: a.digits, period: a.period, algorithm: a.algorithm)), child: const Text('Save'))]));
+    if (result != null) {
+      try { final next = accounts.map((e) => e.id == a.id ? result : e).toList(); await storage.write(key: 'easy_auth_accounts_v1', value: serializeAccounts(next)); accounts..clear()..addAll(next); if(mounted) setState(() {}); }
+      catch (_) { _message('Unable to save changes'); }
+    }
+    issuer.dispose(); name.dispose();
+  }
+  Widget _navigation(bool wide) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    const Padding(padding: EdgeInsets.all(20), child: Row(children: [Icon(Icons.shield_rounded, color: Color(0xFF3565ED), size: 32), SizedBox(width: 12), Expanded(child: Text('Easy Authenticator', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)))])),
+    for (final item in [(Icons.account_circle_outlined,'Accounts'),(Icons.lock_outline,'Protection'),(Icons.backup_outlined,'Backup'),(Icons.info_outline,'About'),(Icons.settings_outlined,'Settings')])
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2), child: ListTile(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), selected: section == [(Icons.account_circle_outlined,'Accounts'),(Icons.lock_outline,'Protection'),(Icons.backup_outlined,'Backup'),(Icons.info_outline,'About'),(Icons.settings_outlined,'Settings')].indexOf(item), selectedTileColor: Theme.of(context).colorScheme.primaryContainer, leading: Icon(item.$1), title: Text(item.$2), onTap: () { setState(() => section = [(Icons.account_circle_outlined,'Accounts'),(Icons.lock_outline,'Protection'),(Icons.backup_outlined,'Backup'),(Icons.info_outline,'About'),(Icons.settings_outlined,'Settings')].indexOf(item)); if (!wide) Navigator.maybePop(context); })),
+    const Spacer(), Padding(padding: const EdgeInsets.all(18), child: Text('OFFLINE • LOCAL STORAGE', style: Theme.of(context).textTheme.labelSmall))
+  ]);
+  Widget _infoPage() {
+    if(section == 4) return ListView(padding: const EdgeInsets.all(24), children: [Text('Settings', style: Theme.of(context).textTheme.headlineMedium), const SizedBox(height: 20), const Text('Appearance'), for(final m in ThemeMode.values) RadioListTile<ThemeMode>(title: Text(m.name.toUpperCase()), value: m, groupValue: widget.mode, onChanged: (v) { if(v != null) widget.onModeChanged(v); }), SwitchListTile(title: const Text('Hide codes'), subtitle: const Text('Conceal codes until you reveal them'), value: hideCodes, onChanged: (v) => setState(() => hideCodes = v))]);
+    if(section == 1) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Your accounts are stored using operating-system secure storage. App PIN and biometric lock are planned; do not assume the app is locked yet.', textAlign: TextAlign.center)));
+    if(section == 2) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Encrypted export and restore are not enabled in this build. Keep your original authenticator and recovery codes until backup has been tested.', textAlign: TextAlign.center)));
+    return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Easy Authenticator • Phase 1\nOffline TOTP for Android and Windows\nNo login, no cloud sync, no analytics.', textAlign: TextAlign.center)));
+  }
+  Widget _accountCard(AuthAccount a) {
+    final remaining = a.period - (now.millisecondsSinceEpoch ~/ 1000) % a.period;
+    final code = totp(a, now: now);
+    final label = hideCodes ? '••• •••' : (code.length == 6 ? '${code.substring(0,3)} ${code.substring(3)}' : '${code.substring(0,4)} ${code.substring(4)}');
+    return Card(clipBehavior: Clip.antiAlias, child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [CircleAvatar(backgroundColor: Theme.of(context).colorScheme.primaryContainer, child: Text((a.issuer.isNotEmpty ? a.issuer : a.name).substring(0,1).toUpperCase())), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(a.issuer.isEmpty ? 'Account' : a.issuer, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), Text(a.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)])), PopupMenuButton<String>(tooltip: 'Account options', onSelected: (v) { if(v == 'edit') _rename(a); if(v == 'delete') _delete(a); }, itemBuilder: (_) => [const PopupMenuItem(value: 'edit', child: Text('Edit name')), const PopupMenuItem(value: 'delete', child: Text('Delete account'))])]),
+      const Spacer(), Center(child: FittedBox(fit: BoxFit.scaleDown, child: Text(label, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: 2)))),
+      const Spacer(), Row(children: [SizedBox(width: 26, height: 26, child: CircularProgressIndicator(value: remaining / a.period, strokeWidth: 3)), const SizedBox(width: 8), Text('${remaining}s'), const Spacer(), IconButton(tooltip: hideCodes ? 'Reveal code' : 'Hide code', onPressed: () => setState(() => hideCodes = !hideCodes), icon: Icon(hideCodes ? Icons.visibility : Icons.visibility_off)), IconButton(tooltip: 'Copy code', onPressed: () async { await Clipboard.setData(ClipboardData(text: code)); _message('Code copied'); }, icon: const Icon(Icons.copy_outlined))])
+    ])));
+  }
   @override Widget build(BuildContext context) {
-    final filtered = accounts.where((a) => '${a.issuer} ${a.name}'.toLowerCase().contains(query.toLowerCase())).toList();
-    return Scaffold(appBar: AppBar(title: const Text('Easy Authenticator'), actions: [IconButton(tooltip: 'Add manually', onPressed: _addManual, icon: const Icon(Icons.add))]), body: loading ? const Center(child: CircularProgressIndicator()) : Column(children: [Padding(padding: const EdgeInsets.all(16), child: TextField(onChanged: (s) => setState(() => query = s), decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search accounts', border: OutlineInputBorder()))), Expanded(child: filtered.isEmpty ? Center(child: Text(accounts.isEmpty ? 'No accounts yet. Add your first 2FA account.' : 'No matching accounts.')) : ListView.builder(itemCount: filtered.length, itemBuilder: (context,i) { final a = filtered[i]; final remaining = a.period - (now.millisecondsSinceEpoch ~/ 1000) % a.period; final code = totp(a, now: now); return Card(margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [CircleAvatar(child: Text((a.issuer.isNotEmpty ? a.issuer : a.name).substring(0,1).toUpperCase())), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(a.issuer.isEmpty ? 'Account' : a.issuer, style: Theme.of(context).textTheme.titleMedium), Text(a.name, maxLines: 1, overflow: TextOverflow.ellipsis)])), PopupMenuButton<String>(onSelected: (v) { if(v == 'delete') _delete(a); }, itemBuilder: (_) => [const PopupMenuItem(value: 'delete', child: Text('Delete'))])]), const SizedBox(height: 12), Row(children: [Expanded(child: SelectableText(code.length == 6 ? '${code.substring(0,3)} ${code.substring(3)}' : '${code.substring(0,4)} ${code.substring(4)}', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold))), IconButton(tooltip: 'Copy code', onPressed: () async { await Clipboard.setData(ClipboardData(text: code)); _message('Code copied'); }, icon: const Icon(Icons.copy)), Text('${remaining}s')]), LinearProgressIndicator(value: remaining / a.period)]))); } ))]), floatingActionButton: FloatingActionButton.extended(onPressed: () => showModalBottomSheet(context: context, builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [ListTile(leading: const Icon(Icons.qr_code_scanner), title: const Text('Scan QR code (Android)'), onTap: () { Navigator.pop(ctx); _scan(); }), ListTile(leading: const Icon(Icons.key), title: const Text('Enter setup key'), onTap: () { Navigator.pop(ctx); _addManual(); })]))), icon: const Icon(Icons.add), label: const Text('Add account')));
+    final wide = MediaQuery.sizeOf(context).width >= 760;
+    final content = section != 0 ? _infoPage() : Column(children: [
+      Padding(padding: const EdgeInsets.fromLTRB(18,18,18,8), child: Row(children: [Expanded(child: TextField(onChanged: (s) => setState(() => query = s), decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: 'Search accounts...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(14))))), const SizedBox(width: 10), IconButton(tooltip: 'Add account', onPressed: _addManual, icon: const Icon(Icons.add_circle_outline))])),
+      Expanded(child: LayoutBuilder(builder: (ctx, constraints) {
+        final filtered = accounts.where((a) => '${a.issuer} ${a.name}'.toLowerCase().contains(query.toLowerCase())).toList();
+        if(filtered.isEmpty) return Center(child: Text(accounts.isEmpty ? 'No accounts yet. Add your first 2FA account.' : 'No matching accounts.'));
+        final cols = constraints.maxWidth >= 1000 ? 3 : constraints.maxWidth >= 620 ? 2 : 1;
+        return GridView.builder(padding: const EdgeInsets.all(14), gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisExtent: 205, crossAxisSpacing: 12, mainAxisSpacing: 12), itemCount: filtered.length, itemBuilder: (context,i) => _accountCard(filtered[i]));
+      })),
+      Padding(padding: const EdgeInsets.all(14), child: Row(children: [Text('Accounts (${accounts.length})'), const Spacer(), FilledButton.icon(onPressed: () => showModalBottomSheet(context: context, builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [ListTile(leading: const Icon(Icons.qr_code_scanner), title: const Text('Scan QR code (Android)'), onTap: () { Navigator.pop(ctx); _scan(); }), ListTile(leading: const Icon(Icons.key), title: const Text('Enter setup key'), onTap: () { Navigator.pop(ctx); _addManual(); })]))), icon: const Icon(Icons.add), label: const Text('Add Account'))]))
+    ]);
+    return Scaffold(appBar: wide ? null : AppBar(title: const Text('Easy Authenticator')), drawer: wide ? null : Drawer(child: SafeArea(child: _navigation(false))), body: loading ? const Center(child: CircularProgressIndicator()) : Row(children: [if(wide) SizedBox(width: 235, child: _navigation(true)), if(wide) const VerticalDivider(width: 1), Expanded(child: content)]));
+
   }
 }
 
