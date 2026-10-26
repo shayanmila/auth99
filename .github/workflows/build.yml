@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   android:
@@ -35,11 +35,13 @@ jobs:
         run: flutter test test/totp_test.dart
       - name: Build release APK
         run: flutter build apk --release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Easy-Authenticator-Android-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
+      - name: Publish Android APK to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk Easy-Authenticator-Android.apk
+          gh release create "android-build-${{ github.run_number }}" Easy-Authenticator-Android.apk --target "${{ github.sha }}" --title "Easy Authenticator Android #${{ github.run_number }}" --notes "Automated Android test build. Keep your existing 2FA backup." --prerelease
+
 
   windows:
     runs-on: windows-latest
@@ -60,8 +62,11 @@ jobs:
         run: flutter test test/totp_test.dart
       - name: Build Windows release
         run: flutter build windows --release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Easy-Authenticator-Windows-Portable
-          path: build/windows/x64/runner/Release/**
-          if-no-files-found: error
+      - name: Package and publish Windows ZIP to GitHub Releases
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "Easy-Authenticator-Windows.zip" -Force
+          gh release create "windows-build-${{ github.run_number }}" "Easy-Authenticator-Windows.zip" --target "${{ github.sha }}" --title "Easy Authenticator Windows #${{ github.run_number }}" --notes "Portable Windows test build. Extract the full ZIP before running the EXE." --prerelease
+
