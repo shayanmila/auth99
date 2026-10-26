@@ -16,8 +16,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'totp.dart';
 import 'migration.dart';
+import 'cloud_account.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-void main() { WidgetsFlutterBinding.ensureInitialized(); runApp(const EasyAuthenticator()); }
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (CloudAuthConfig.isConfigured) {
+    try {
+      await Supabase.initialize(url: CloudAuthConfig.url, anonKey: CloudAuthConfig.publishableKey);
+    } catch (e) {
+      debugPrint('Cloud sign-in unavailable; continuing in offline mode: $e');
+    }
+  }
+  runApp(const EasyAuthenticator());
+}
 
 class EasyAuthenticator extends StatefulWidget {
   const EasyAuthenticator({super.key});
@@ -332,7 +344,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
   Widget _navigation(bool wide) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
     const Padding(padding: EdgeInsets.all(20), child: Row(children: [Icon(Icons.shield_rounded, color: Color(0xFF3565ED), size: 32), SizedBox(width: 12), Expanded(child: Text('Easy Authenticator', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)))])),
-    for (final item in [(Icons.account_circle_outlined,'Accounts'),(Icons.lock_outline,'Protection'),(Icons.backup_outlined,'Backup'),(Icons.info_outline,'About'),(Icons.settings_outlined,'Settings')])
+    for (final item in [(Icons.account_circle_outlined,'Accounts'),(Icons.lock_outline,'Protection'),(Icons.backup_outlined,'Backup'),(Icons.info_outline,'About'),(Icons.settings_outlined,'Settings'),(Icons.cloud_outlined,'Cloud Account')])
       Padding(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2), child: ListTile(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), selected: section == [(Icons.account_circle_outlined,'Accounts'),(Icons.lock_outline,'Protection'),(Icons.backup_outlined,'Backup'),(Icons.info_outline,'About'),(Icons.settings_outlined,'Settings')].indexOf(item), selectedTileColor: Theme.of(context).colorScheme.primaryContainer, leading: Icon(item.$1), title: Text(item.$2), onTap: () { setState(() => section = [(Icons.account_circle_outlined,'Accounts'),(Icons.lock_outline,'Protection'),(Icons.backup_outlined,'Backup'),(Icons.info_outline,'About'),(Icons.settings_outlined,'Settings')].indexOf(item)); if (!wide) Navigator.maybePop(context); })),
     const Spacer(), Padding(padding: const EdgeInsets.all(18), child: Text('OFFLINE • LOCAL STORAGE', style: Theme.of(context).textTheme.labelSmall))
   ]);
@@ -342,6 +354,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!ok) _message('Could not open the website');
   }
   Widget _infoPage() {
+    if (section == 5) return const CloudAccountPage();
     if(section == 4) return ListView(padding: const EdgeInsets.all(24), children: [Text('Settings', style: Theme.of(context).textTheme.headlineMedium), const SizedBox(height: 20), const Text('Appearance'), for(final m in ThemeMode.values) RadioListTile<ThemeMode>(title: Text(m.name.toUpperCase()), value: m, groupValue: widget.mode, onChanged: (v) { if(v != null) widget.onModeChanged(v); }), const Divider(height: 28), const Text('Text size'), Slider(value: widget.textScale, min: 0.85, max: 1.4, divisions: 11, label: '${(widget.textScale * 100).round()}%', onChanged: widget.onTextScaleChanged), Text('Preview • ${(widget.textScale * 100).round()}%'), const SizedBox(height: 12), const Text('Font styling'), for(final style in ['Default', 'Serif', 'Mono']) RadioListTile<String>(title: Text(style), value: style, groupValue: widget.fontStyle, onChanged: (v) { if(v != null) widget.onFontStyleChanged(v); }), const Divider(height: 28), SwitchListTile(title: const Text('Hide codes'), subtitle: const Text('Conceal codes until you reveal them'), value: hideCodes, onChanged: (v) => setState(() => hideCodes = v))]);
     if(section == 1) return ListView(padding: const EdgeInsets.all(20), children: [
       Text('App Protection', style: Theme.of(context).textTheme.headlineMedium),
