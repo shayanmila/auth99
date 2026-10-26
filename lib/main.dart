@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
+import 'backup.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -106,6 +109,80 @@ class _HomePageState extends State<HomePage> {
     }
     issuer.dispose(); name.dispose();
   }
+  Future<String?> _backupPassword({required bool confirm}) async {
+    final first = TextEditingController(), second = TextEditingController();
+    final result = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(confirm ? 'Encrypt backup' : 'Unlock backup'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text(confirm ? 'Choose a strong password (12+ characters). Without it the backup cannot be recovered.' : 'Enter the password used when exporting this backup.'),
+        TextField(controller: first, obscureText: true, decoration: const InputDecoration(labelText: 'Backup password')),
+        if(confirm) TextField(controller: second, obscureText: true, decoration: const InputDecoration(labelText: 'Confirm password')),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        FilledButton(onPressed: () {
+          if(first.text.isEmpty || (confirm && (first.text.length < 12 || first.text != second.text))) {
+            ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Password must match and contain at least 12 characters.'))); return;
+          }
+          Navigator.pop(ctx, first.text);
+        }, child: Text(confirm ? 'Continue' : 'Unlock'))],
+    ));
+    first.dispose(); second.dispose();
+    return result;
+  }
+  Future<void> _exportBackup() async {
+    if(accounts.isEmpty) { _message('No accounts to back up'); return; }
+    final password = await _backupPassword(confirm: true);
+    if(password == null) return;
+    try {
+      final bytes = await BackupCodec.export(accounts, password);
+      final destination = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save encrypted backup',
+        fileName: 'easy-auth-backup.eauth',
+        type: FileType.custom, allowedExtensions: ['eauth'],
+        bytes: bytes,
+      );
+      if(destination == null) { _message('Backup save cancelled'); return; }
+      _message('Encrypted backup exported. Store the password safely.');
+    } catch(e) { _message('Backup export failed: $e'); }
+  }
+  Future<void> _restoreBackup() async {
+    try {
+      final selection = await FilePicker.platform.pickFiles(
+        type: FileType.custom, allowedExtensions: ['eauth'], withData: true,
+      );
+      if(selection == null) return;
+      final data = selection.files.single.bytes;
+      if(data == null) { _message('Unable to read backup file'); return; }
+      final password = await _backupPassword(confirm: false);
+      if(password == null) return;
+      final imported = await BackupCodec.restore(Uint8List.fromList(data), password);
+      if(!mounted) return;
+      final seen = accounts.map((a) => '${a.issuer.toLowerCase()}|${a.name.toLowerCase()}|${a.secret.replaceAll(' ', '').toUpperCase()}').toSet();
+      final unique = <AuthAccount>[];
+      for(final a in imported) {
+        final signature = '${a.issuer.toLowerCase()}|${a.name.toLowerCase()}|${a.secret.replaceAll(' ', '').toUpperCase()}';
+        if(seen.add(signature)) unique.add(a);
+      }
+      final proceed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+        title: const Text('Restore accounts?'),
+        content: Text('${imported.length} account(s) in backup. ${unique.length} new, ${imported.length - unique.length} duplicate(s). Existing accounts will NOT be deleted.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx,false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(ctx,true), child: const Text('Restore'))],
+      ));
+      if(proceed != true || unique.isEmpty) return;
+      final usedIds = accounts.map((a) => a.id).toSet();
+      final restored = <AuthAccount>[];
+      for(final a in unique) {
+        var id = a.id;
+        if(!usedIds.add(id)) { id = '${DateTime.now().microsecondsSinceEpoch}-${restored.length}'; usedIds.add(id); }
+        restored.add(AuthAccount(id: id, issuer: a.issuer, name: a.name, secret: a.secret, digits: a.digits, period: a.period, algorithm: a.algorithm));
+      }
+      final next = [...accounts, ...restored];
+      await storage.write(key: 'easy_auth_accounts_v1', value: serializeAccounts(next));
+      accounts..clear()..addAll(next);
+      if(mounted) setState(() {});
+      _message('${restored.length} account(s) restored');
+    } catch (_) { _message('Restore failed: wrong password, damaged file, or unsupported format. Existing accounts were not changed.'); }
+  }
   Widget _navigation(bool wide) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
     const Padding(padding: EdgeInsets.all(20), child: Row(children: [Icon(Icons.shield_rounded, color: Color(0xFF3565ED), size: 32), SizedBox(width: 12), Expanded(child: Text('Easy Authenticator', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)))])),
     for (final item in [(Icons.account_circle_outlined,'Accounts'),(Icons.lock_outline,'Protection'),(Icons.backup_outlined,'Backup'),(Icons.info_outline,'About'),(Icons.settings_outlined,'Settings')])
@@ -115,8 +192,32 @@ class _HomePageState extends State<HomePage> {
   Widget _infoPage() {
     if(section == 4) return ListView(padding: const EdgeInsets.all(24), children: [Text('Settings', style: Theme.of(context).textTheme.headlineMedium), const SizedBox(height: 20), const Text('Appearance'), for(final m in ThemeMode.values) RadioListTile<ThemeMode>(title: Text(m.name.toUpperCase()), value: m, groupValue: widget.mode, onChanged: (v) { if(v != null) widget.onModeChanged(v); }), SwitchListTile(title: const Text('Hide codes'), subtitle: const Text('Conceal codes until you reveal them'), value: hideCodes, onChanged: (v) => setState(() => hideCodes = v))]);
     if(section == 1) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Your accounts are stored using operating-system secure storage. App PIN and biometric lock are planned; do not assume the app is locked yet.', textAlign: TextAlign.center)));
-    if(section == 2) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Encrypted export and restore are not enabled in this build. Keep your original authenticator and recovery codes until backup has been tested.', textAlign: TextAlign.center)));
-    return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Easy Authenticator • Phase 1\nOffline TOTP for Android and Windows\nNo login, no cloud sync, no analytics.', textAlign: TextAlign.center)));
+    if(section == 2) return ListView(padding: const EdgeInsets.all(24), children: [
+      Text('Backup & Restore', style: Theme.of(context).textTheme.headlineMedium),
+      const SizedBox(height: 12),
+      const Text('Protect your accounts with an encrypted, password-protected .eauth file. All encryption happens locally. The password cannot be reset.'),
+      const SizedBox(height: 24),
+      Card(child: ListTile(leading: const Icon(Icons.file_upload_outlined), title: const Text('Export encrypted backup'), subtitle: Text('Save ${accounts.length} account(s) to a portable file'), trailing: const Icon(Icons.chevron_right), onTap: _exportBackup)),
+      Card(child: ListTile(leading: const Icon(Icons.file_download_outlined), title: const Text('Restore from backup'), subtitle: const Text('Add accounts without deleting existing ones'), trailing: const Icon(Icons.chevron_right), onTap: _restoreBackup)),
+      const SizedBox(height: 18),
+      const Text('Important: Keep your original authenticator and recovery codes until you have verified that a backup restores correctly. Never share your backup file and password together.'),
+    ]);
+    return ListView(padding: const EdgeInsets.all(24), children: [
+      const Icon(Icons.shield_rounded, size: 64, color: Color(0xFF5066D9)),
+      const SizedBox(height: 16),
+      Text('Easy Authenticator', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium),
+      const SizedBox(height: 8),
+      const Text('Version 0.2 • Android & Windows', textAlign: TextAlign.center),
+      const SizedBox(height: 24),
+      const Text('An offline two-factor authentication app. Generate time-based one-time passwords (TOTP) for your accounts without an internet connection.'),
+      const SizedBox(height: 16),
+      const ListTile(leading: Icon(Icons.qr_code_scanner), title: Text('Account import'), subtitle: Text('Standard TOTP QR and Google Authenticator transfer QR codes')),
+      const ListTile(leading: Icon(Icons.lock_outline), title: Text('Local protection'), subtitle: Text('Accounts saved in operating-system secure storage')),
+      const ListTile(leading: Icon(Icons.backup_outlined), title: Text('Portable backups'), subtitle: Text('Password-encrypted AES-256-GCM export and additive restore')),
+      const ListTile(leading: Icon(Icons.cloud_off_outlined), title: Text('Offline by design'), subtitle: Text('No account registration, cloud synchronization, or analytics')),
+      const SizedBox(height: 16),
+      const Text('App PIN and biometric lock are not yet available. Keep independent recovery methods for important accounts.', textAlign: TextAlign.center),
+    ]);
   }
   Widget _accountCard(AuthAccount a) {
     final remaining = a.period - (now.millisecondsSinceEpoch ~/ 1000) % a.period;
