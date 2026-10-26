@@ -24,12 +24,16 @@ class EasyAuthenticator extends StatefulWidget {
 }
 class _EasyAuthenticatorState extends State<EasyAuthenticator> {
   ThemeMode mode = ThemeMode.system;
-  @override void initState() { super.initState(); SharedPreferences.getInstance().then((p) { if (mounted) setState(() => mode = ThemeMode.values[p.getInt('easy_auth_theme')?.clamp(0,2) ?? 0]); }); }
+  double textScale = 1.0;
+  String fontStyle = 'Default';
+  @override void initState() { super.initState(); SharedPreferences.getInstance().then((p) { if (mounted) setState(() { mode = ThemeMode.values[p.getInt('easy_auth_theme')?.clamp(0,2) ?? 0]; textScale = (p.getDouble('easy_auth_text_scale_v1') ?? 1.0).clamp(0.85, 1.4); fontStyle = p.getString('easy_auth_font_style_v1') ?? 'Default'; }); }); }
   Future<void> setMode(ThemeMode next) async { setState(() => mode = next); final p = await SharedPreferences.getInstance(); await p.setInt('easy_auth_theme', next.index); }
-  @override Widget build(BuildContext context) => MaterialApp(title: 'Easy Authenticator', debugShowCheckedModeBanner: false, theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF5066D9)), useMaterial3: true), darkTheme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B9AFF), brightness: Brightness.dark), useMaterial3: true), themeMode: mode, home: HomePage(mode: mode, onModeChanged: setMode));
+  Future<void> setTextScale(double value) async { setState(() => textScale = value); final p = await SharedPreferences.getInstance(); await p.setDouble('easy_auth_text_scale_v1', value); }
+  Future<void> setFontStyle(String value) async { setState(() => fontStyle = value); final p = await SharedPreferences.getInstance(); await p.setString('easy_auth_font_style_v1', value); }
+  @override Widget build(BuildContext context) => MaterialApp(title: 'Easy Authenticator', debugShowCheckedModeBanner: false, theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF5066D9)), useMaterial3: true, fontFamily: fontStyle == 'Serif' ? 'serif' : fontStyle == 'Mono' ? 'monospace' : null), darkTheme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B9AFF), brightness: Brightness.dark), useMaterial3: true, fontFamily: fontStyle == 'Serif' ? 'serif' : fontStyle == 'Mono' ? 'monospace' : null), themeMode: mode, builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)), child: child ?? const SizedBox.shrink()), home: HomePage(mode: mode, onModeChanged: setMode, textScale: textScale, fontStyle: fontStyle, onTextScaleChanged: setTextScale, onFontStyleChanged: setFontStyle));
 }
 
-class HomePage extends StatefulWidget { final ThemeMode mode; final ValueChanged<ThemeMode> onModeChanged; const HomePage({super.key, required this.mode, required this.onModeChanged}); @override State<HomePage> createState() => _HomePageState(); }
+class HomePage extends StatefulWidget { final ThemeMode mode; final ValueChanged<ThemeMode> onModeChanged; final double textScale; final String fontStyle; final ValueChanged<double> onTextScaleChanged; final ValueChanged<String> onFontStyleChanged; const HomePage({super.key, required this.mode, required this.onModeChanged, required this.textScale, required this.fontStyle, required this.onTextScaleChanged, required this.onFontStyleChanged}); @override State<HomePage> createState() => _HomePageState(); }
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const storage = FlutterSecureStorage();
   final List<AuthAccount> accounts = [];
@@ -153,7 +157,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<int, List<AuthAccount>> pendingTransfer = {};
   int? transferId;
   int? transferSize;
-  @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); loadProtection(); _load(); timer = Timer.periodic(const Duration(seconds: 1), (_) { if(mounted) setState(() => now = DateTime.now()); }); }
+  @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); loadProtection(); _load(); timer = Timer.periodic(const Duration(seconds: 1), (_) { if(mounted && !locked && section == 0 && !loading) setState(() => now = DateTime.now()); }); }
   @override void dispose() { WidgetsBinding.instance.removeObserver(this); timer?.cancel(); super.dispose(); }
   Future<void> _load() async {
     try { final value = await storage.read(key: 'easy_auth_accounts_v1'); if(value != null) accounts.addAll(deserializeAccounts(value)); }
@@ -332,7 +336,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     const Spacer(), Padding(padding: const EdgeInsets.all(18), child: Text('OFFLINE • LOCAL STORAGE', style: Theme.of(context).textTheme.labelSmall))
   ]);
   Widget _infoPage() {
-    if(section == 4) return ListView(padding: const EdgeInsets.all(24), children: [Text('Settings', style: Theme.of(context).textTheme.headlineMedium), const SizedBox(height: 20), const Text('Appearance'), for(final m in ThemeMode.values) RadioListTile<ThemeMode>(title: Text(m.name.toUpperCase()), value: m, groupValue: widget.mode, onChanged: (v) { if(v != null) widget.onModeChanged(v); }), SwitchListTile(title: const Text('Hide codes'), subtitle: const Text('Conceal codes until you reveal them'), value: hideCodes, onChanged: (v) => setState(() => hideCodes = v))]);
+    if(section == 4) return ListView(padding: const EdgeInsets.all(24), children: [Text('Settings', style: Theme.of(context).textTheme.headlineMedium), const SizedBox(height: 20), const Text('Appearance'), for(final m in ThemeMode.values) RadioListTile<ThemeMode>(title: Text(m.name.toUpperCase()), value: m, groupValue: widget.mode, onChanged: (v) { if(v != null) widget.onModeChanged(v); }), const Divider(height: 28), const Text('Text size'), Slider(value: widget.textScale, min: 0.85, max: 1.4, divisions: 11, label: '${(widget.textScale * 100).round()}%', onChanged: widget.onTextScaleChanged), Text('Preview • ${(widget.textScale * 100).round()}%'), const SizedBox(height: 12), const Text('Font styling'), for(final style in ['Default', 'Serif', 'Mono']) RadioListTile<String>(title: Text(style), value: style, groupValue: widget.fontStyle, onChanged: (v) { if(v != null) widget.onFontStyleChanged(v); }), const Divider(height: 28), SwitchListTile(title: const Text('Hide codes'), subtitle: const Text('Conceal codes until you reveal them'), value: hideCodes, onChanged: (v) => setState(() => hideCodes = v))]);
     if(section == 1) return ListView(padding: const EdgeInsets.all(20), children: [
       Text('App Protection', style: Theme.of(context).textTheme.headlineMedium),
       const SizedBox(height: 12),
