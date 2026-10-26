@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'backup.dart';
@@ -142,7 +143,18 @@ class _HomePageState extends State<HomePage> {
         bytes: bytes,
       );
       if(destination == null) { _message('Backup save cancelled'); return; }
-      _message('Encrypted backup exported. Store the password safely.');
+      if(Platform.isWindows) {
+        final file = File(destination);
+        await file.writeAsBytes(bytes, flush: true);
+        if(!await file.exists() || await file.length() != bytes.length) {
+          throw const FileSystemException('Backup file could not be verified');
+        }
+        final check = await file.readAsBytes();
+        if(!listEquals(check, bytes)) {
+          throw const FileSystemException('Backup verification failed');
+        }
+      }
+      _message('Encrypted backup saved: $destination');
     } catch(e) { _message('Backup export failed: $e'); }
   }
   Future<void> _restoreBackup() async {
