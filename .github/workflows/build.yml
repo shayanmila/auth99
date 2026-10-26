@@ -33,6 +33,17 @@ jobs:
         run: flutter pub get
       - name: Tests
         run: flutter test test/totp_test.dart
+      - name: Set Android compile SDK 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for p in (Path('android/app/build.gradle.kts'), Path('android/app/build.gradle')):
+              if p.exists():
+                  s = p.read_text()
+                  s = s.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
+                  s = s.replace('compileSdk flutter.compileSdkVersion', 'compileSdk 36')
+                  p.write_text(s)
+          PY
       - name: Build release APK
         run: flutter build apk --release
       - name: Publish Android APK to GitHub Releases
