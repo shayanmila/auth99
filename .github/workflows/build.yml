@@ -1,0 +1,67 @@
+name: Build Android APK and Windows ZIP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Create Android project
+        run: flutter create --platforms=android --project-name easy_authenticator .
+      - name: Add Android camera permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('android/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          if 'android.permission.CAMERA' not in s:
+              s=s.replace('<application', '<uses-permission android:name="android.permission.CAMERA"/>\n    <application',1)
+          p.write_text(s)
+          PY
+      - name: Dependencies
+        run: flutter pub get
+      - name: Tests
+        run: flutter test
+      - name: Build release APK
+        run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Easy-Authenticator-Android-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Enable Windows Flutter
+        shell: pwsh
+        run: |
+          flutter config --enable-windows-desktop
+          flutter create --platforms=windows --project-name easy_authenticator .
+      - name: Dependencies
+        run: flutter pub get
+      - name: Tests
+        run: flutter test
+      - name: Build Windows release
+        run: flutter build windows --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Easy-Authenticator-Windows-Portable
+          path: build/windows/x64/runner/Release/**
+          if-no-files-found: error
