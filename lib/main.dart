@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'totp.dart';
 import 'migration.dart';
 import 'cloud_account.dart';
+import 'auto_cloud_backup.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -80,6 +81,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         setState(() => locked = true);
       }
       backgroundAt = null;
+      AutoCloudBackup.instance.refresh();
     }
   }
   Future<String?> pinDialog(String title, {bool confirm = false}) async {
@@ -171,12 +173,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<int, List<AuthAccount>> pendingTransfer = {};
   int? transferId;
   int? transferSize;
-  @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); loadProtection(); _load(); timer = Timer.periodic(const Duration(seconds: 1), (_) { if(mounted && !locked && section == 0 && !loading) setState(() => now = DateTime.now()); }); }
-  @override void dispose() { WidgetsBinding.instance.removeObserver(this); timer?.cancel(); super.dispose(); }
+  @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); loadProtection(); _load(); AutoCloudBackup.instance.initialize(() async => List<AuthAccount>.of(accounts)); timer = Timer.periodic(const Duration(seconds: 1), (_) { if(mounted && !locked && section == 0 && !loading) setState(() => now = DateTime.now()); }); }
+  @override void dispose() { WidgetsBinding.instance.removeObserver(this); timer?.cancel(); AutoCloudBackup.instance.disposeTimer(); super.dispose(); }
   Future<void> _load() async {
     try { final value = await storage.read(key: 'easy_auth_accounts_v1'); if(value != null) accounts.addAll(deserializeAccounts(value)); }
     catch (e) { if(mounted) _message('Unable to read encrypted storage: $e'); }
-    if(mounted) setState(() => loading = false);
+    if(mounted) setState(() => loading = false); AutoCloudBackup.instance.onResume();
   }
   Future<void> _save() async { await storage.write(key: 'easy_auth_accounts_v1', value: serializeAccounts(accounts)); if(mounted) setState(() {}); }
   void _message(String text) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text))); }
