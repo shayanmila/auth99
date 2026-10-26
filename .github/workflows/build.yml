@@ -19,12 +19,27 @@ jobs:
           cache: true
       - name: Create Android project
         run: flutter create --platforms=android --project-name easy_authenticator .
+      - name: Configure Android 8+ and biometric activity
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('android/app/src/main/kotlin/com/example/easy_authenticator/MainActivity.kt')
+          if p.exists():
+              s=p.read_text().replace('FlutterActivity', 'FlutterFragmentActivity')
+              p.write_text(s)
+          for p in (Path('android/app/build.gradle.kts'), Path('android/app/build.gradle')):
+              if p.exists():
+                  s=p.read_text().replace('minSdk = flutter.minSdkVersion','minSdk = 26').replace('minSdk flutter.minSdkVersion','minSdk 26')
+                  p.write_text(s)
+          PY
       - name: Add Android camera permission
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('android/app/src/main/AndroidManifest.xml')
           s=p.read_text()
+          if 'android.permission.USE_BIOMETRIC' not in s:
+              s=s.replace('<application', '<uses-permission android:name="android.permission.USE_BIOMETRIC"/>\n    <uses-permission android:name="android.permission.USE_FINGERPRINT"/>\n    <application',1)
           if 'android.permission.CAMERA' not in s:
               s=s.replace('<application', '<uses-permission android:name="android.permission.CAMERA"/>\n    <application',1)
           p.write_text(s)
