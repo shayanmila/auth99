@@ -1,0 +1,20 @@
+name: easy_authenticator
+description: Offline TOTP authenticator for Android and Windows.
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: ^3.0.6
+  flutter_secure_storage: ^9.2.4
+  mobile_scanner: ^7.0.1
+  shared_preferences: ^2.3.3
+  window_manager: ^0.4.3
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+flutter:
+  uses-material-design: true
