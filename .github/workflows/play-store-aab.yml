@@ -83,7 +83,8 @@ jobs:
           m = manifest.read_text()
           for perm in ('INTERNET', 'CAMERA', 'USE_BIOMETRIC'):
               if f'android.permission.{perm}' not in m:
-                  m = m.replace('<application', f'<uses-permission android:name="android.permission.{perm}"/>\n    <application', 1)
+                  m = m.replace('<application', f'<uses-permission android:name="android.permission.{perm}"/>' + chr(10) + '    <application', 1)
+          m = m.replace('android:label="easy_authenticator"', 'android:label="Easy Authenticator"')
           manifest.write_text(m)
           PY
       - name: Install dependencies
