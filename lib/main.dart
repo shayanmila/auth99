@@ -117,6 +117,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await prefs.setBool('easy_auth_biometric_v1', false);
     if(mounted) setState(() { pinEnabled = false; biometricEnabled = false; locked = false; pinSalt = null; pinHash = null; });
   }
+  Future<void> configureAutoLock(int seconds) async {
+    if(!pinEnabled) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('easy_auth_auto_lock_v1', seconds);
+    if(mounted) setState(() => autoLockSeconds = seconds);
+  }
   Future<void> configureBiometric(bool enabled) async {
     if(enabled) {
       if(!pinEnabled) { _message('Set a PIN first'); return; }
