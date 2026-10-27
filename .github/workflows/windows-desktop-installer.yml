@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows-installer:
@@ -56,10 +56,15 @@ jobs:
           $setup = Get-ChildItem 'dist\*.exe' | Select-Object -First 1
           if (!$setup -or $setup.Length -lt 100000) { throw "Installer missing or too small" }
           Get-FileHash $setup.FullName -Algorithm SHA256
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: Easy-Authenticator-Windows-x64-Setup
-          path: dist/*.exe
-          if-no-files-found: error
-          retention-days: 30
+      - name: Publish installer to GitHub Releases
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)').Matches.Groups[1].Value -split '\+')[0]
+          $tag = "windows-v$version-build-${{ github.run_number }}"
+          $setup = Get-ChildItem 'dist\*.exe' | Select-Object -First 1
+          if (!$setup) { throw "Installer missing" }
+          gh release create $tag "$($setup.FullName)" --target "${{ github.sha }}" --title "Easy Authenticator Windows $version (Build ${{ github.run_number }})" --notes "Windows x64 setup installer. Review and test before public distribution." --draft
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release upload failed" }
