@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   play-store-aab:
@@ -122,27 +122,33 @@ jobs:
           APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
           "$APK_SIGNER" verify --verbose --print-certs "$APK"
           unzip -t "$APK" | tail -1
-      - name: Upload signed Android APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Easy-Authenticator-Signed-APK-${{ github.run_number }}
-          path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
-          retention-days: 30
       - name: Verify release bundle
         run: |
           set -eu
           AAB=build/app/outputs/bundle/release/app-release.aab
           test -s "$AAB"
           unzip -t "$AAB" | tail -1
-          jarsigner -verify -verbose -certs "$AAB" | grep -E 'jar verified|s = signature was verified' | head -3
-      - name: Upload Play Store AAB
-        uses: actions/upload-artifact@v4
-        with:
-          name: Easy-Authenticator-PlayStore-AAB-${{ github.run_number }}
-          path: build/app/outputs/bundle/release/app-release.aab
-          if-no-files-found: error
-          retention-days: 30
+          jarsigner -verify "$AAB"
+      - name: Verify package identity and version
+        run: |
+          set -eu
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          AAPT="$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)"
+          "$AAPT" dump badging "$APK" | head -1 | tee /tmp/easy-auth-package.txt
+          grep -F "name='com.masoodev.easyauthenticator'" /tmp/easy-auth-package.txt
+          grep -F "versionCode='${{ github.run_number }}'" /tmp/easy-auth-package.txt
+      - name: Publish signed APK and AAB to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          TAG="playstore-build-${{ github.run_number }}"
+          gh release create "$TAG" \
+            build/app/outputs/flutter-apk/app-release.apk#Easy-Authenticator-${{ github.run_number }}.apk \
+            build/app/outputs/bundle/release/app-release.aab#Easy-Authenticator-${{ github.run_number }}.aab \
+            --title "Easy Authenticator signed Android build ${{ github.run_number }}" \
+            --notes "Signed APK and Play Store AAB; package com.masoodev.easyauthenticator; versionCode ${{ github.run_number }}." \
+            --prerelease
       - name: Remove upload key from runner
         if: always()
         run: rm -f /tmp/easy-auth-upload.jks
