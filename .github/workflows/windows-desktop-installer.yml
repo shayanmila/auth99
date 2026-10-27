@@ -51,6 +51,13 @@ jobs:
           $version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)').Matches.Groups[1].Value -split '\+')[0]
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { throw "ISCC.exe missing" }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Add-Type -AssemblyName System.Drawing
+          $exe = (Resolve-Path 'build/windows/x64/runner/Release/easy_authenticator.exe').Path
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+          if (!$icon) { throw 'Application icon extraction failed' }
+          $stream = [System.IO.File]::Create((Join-Path (Resolve-Path dist).Path 'EasyAuthenticator.ico'))
+          try { $icon.Save($stream) } finally { $stream.Dispose(); $icon.Dispose() }
           & $iscc "/DAppVersion=$version" "installer\EasyAuthenticator.iss"
           if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
           $setup = Get-ChildItem 'dist\*.exe' | Select-Object -First 1
