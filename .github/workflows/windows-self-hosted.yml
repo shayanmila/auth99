@@ -1,0 +1,62 @@
+name: Windows Installer (self-hosted)
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows-installer:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check installed tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          flutter --version
+          git --version
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "Install Inno Setup 6 on the runner first." }
+          flutter doctor -v
+      - name: Generate Windows project and dependencies
+        shell: pwsh
+        run: |
+          flutter config --enable-windows-desktop
+          flutter create --platforms=windows --project-name easy_authenticator .
+          if ($LASTEXITCODE -ne 0) { throw "flutter create failed" }
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw "pub get failed" }
+      - name: Run TOTP tests
+        shell: pwsh
+        run: |
+          flutter test test/totp_test.dart
+          if ($LASTEXITCODE -ne 0) { throw "tests failed" }
+      - name: Build release executable
+        shell: pwsh
+        run: |
+          flutter build windows --release
+          if ($LASTEXITCODE -ne 0) { throw "Windows build failed" }
+          if (!(Test-Path 'build/windows/x64/runner/Release/easy_authenticator.exe')) { throw "EXE missing" }
+      - name: Package installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(\d+\.\d+\.\d+)').Matches.Groups[1].Value)
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=$version" installer/EasyAuthenticator.iss
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
+          Get-ChildItem dist/*.exe | ForEach-Object { Get-FileHash $_.FullName -Algorithm SHA256 | Format-List }
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Easy-Authenticator-Windows-Installer
+          path: dist/*.exe
+          if-no-files-found: error
+      - name: Publish prerelease for manual verification
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "windows-installer-${{ github.run_number }}"
+          gh release create $tag dist/*.exe --target "${{ github.sha }}" --title "Easy Authenticator Windows Installer #${{ github.run_number }}" --notes "Pre-release for verification. Do not distribute publicly until privacy, security, signing and install/uninstall testing are completed." --prerelease
