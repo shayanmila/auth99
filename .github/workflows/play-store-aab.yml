@@ -51,7 +51,7 @@ jobs:
           s = s.replace('minSdk = flutter.minSdkVersion', 'minSdk = 26')
           s = s.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
           s = s.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 35')
-          if 'applicationId = "com.masoomdev.easyauthenticator"' not in s:
+          if 'applicationId = "com.masoodev.easyauthenticator"' not in s:
               raise SystemExit('Package identifier replacement failed')
           s = s.replace('android {', '''android {
               signingConfigs {
