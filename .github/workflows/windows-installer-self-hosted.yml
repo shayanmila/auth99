@@ -1,0 +1,73 @@
+name: Windows Installer - Self Hosted
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: easy-authenticator-windows-release
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Verify Windows build prerequisites
+        shell: pwsh
+        run: |
+          flutter config --enable-windows-desktop
+          flutter doctor -v
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "Install Inno Setup 6 on the self-hosted runner first: https://jrsoftware.org/isinfo.php" }
+          if (!(Get-Command git -ErrorAction SilentlyContinue)) { throw "Git is required" }
+      - name: Generate Windows project and dependencies
+        shell: pwsh
+        run: |
+          flutter create --platforms=windows --project-name easy_authenticator .
+          flutter pub get
+      - name: Run TOTP tests
+        shell: pwsh
+        run: flutter test test/totp_test.dart
+      - name: Build Windows desktop application
+        shell: pwsh
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          flutter build windows --release --dart-define=SUPABASE_URL=$env:SUPABASE_URL --dart-define=SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $versionLine = (Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)').Matches.Groups[1].Value
+          $version = ($versionLine -split '\+')[0]
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=$version" installer\EasyAuthenticator.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $setup = Get-ChildItem dist\*.exe | Select-Object -First 1
+          if (!$setup -or $setup.Length -lt 100000) { throw "Installer missing or unexpectedly small" }
+          Get-FileHash $setup.FullName -Algorithm SHA256 | Format-List
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Easy-Authenticator-Windows-Installer
+          path: dist/*.exe
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish draft release for review
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $versionLine = (Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)').Matches.Groups[1].Value
+          $version = ($versionLine -split '\+')[0]
+          $tag = "windows-v$version-build-${{ github.run_number }}"
+          gh release create $tag dist\*.exe --target "${{ github.sha }}" --title "Easy Authenticator Windows $version (Build ${{ github.run_number }})" --notes "Windows x64 installer. Draft pending publisher review, privacy notice verification, and security testing. Keep independent 2FA recovery codes." --draft
