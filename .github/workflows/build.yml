@@ -1,8 +1,6 @@
 name: Build Android APK and Windows ZIP
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
