@@ -35,8 +35,8 @@ Future<void> main() async {
   if (Platform.isWindows) {
     await windowManager.ensureInitialized();
     const options = WindowOptions(
-      size: Size(1170, 725),
-      minimumSize: Size(560, 480),
+      size: Size(702, 435),
+      minimumSize: Size(560, 400),
       center: true,
       title: 'Easy Authenticator',
     );
