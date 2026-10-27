@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'totp.dart';
 import 'migration.dart';
+import 'desktop_qr.dart';
 import 'cloud_account.dart';
 import 'auto_cloud_backup.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -230,6 +231,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     pendingTransfer.clear(); transferId = null; transferSize = null;
   }
+  Future<void> _importDecodedQr(String? raw) async {
+    if (raw == null) return;
+    if (!raw.startsWith('otpauth://') && !raw.startsWith('otpauth-migration://')) {
+      _message('This image does not contain an authenticator setup QR code.');
+      return;
+    }
+    try {
+      if (raw.startsWith('otpauth-migration://')) {
+        await _importTransfer(raw);
+      } else {
+        await _add(parseOtpAuth(raw));
+      }
+    } catch (e) {
+      _message('Unable to import QR code: $e');
+    }
+  }
+  Future<void> _scanImage() async {
+    try { await _importDecodedQr(await pickAndDecodeQr()); }
+    catch (_) { _message('No readable QR code found. Try a clearer image or manual setup key.'); }
+  }
+  Future<void> _scanScreen() async {
+    try { await _importDecodedQr(await captureAndDecodeQr()); }
+    catch (_) { _message('No QR code detected on the primary screen. Make sure it is fully visible, or import an image.'); }
+  }
   Future<void> _scan() async {
     if(defaultTargetPlatform != TargetPlatform.android) { _message('QR camera scanning is currently Android-only. Use manual entry on Windows.'); return; }
     final result = await Navigator.push<String>(context, MaterialPageRoute(builder: (_) => const ScanPage()));
@@ -434,7 +459,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final cols = constraints.maxWidth >= 1000 ? 3 : constraints.maxWidth >= 620 ? 2 : 1;
         return GridView.builder(padding: const EdgeInsets.all(14), gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisExtent: 205, crossAxisSpacing: 12, mainAxisSpacing: 12), itemCount: filtered.length, itemBuilder: (context,i) => _accountCard(filtered[i]));
       })),
-      Padding(padding: const EdgeInsets.all(14), child: Row(children: [Text('Accounts (${accounts.length})'), const Spacer(), FilledButton.icon(onPressed: () => showModalBottomSheet(context: context, builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [ListTile(leading: const Icon(Icons.qr_code_scanner), title: const Text('Scan QR code (Android)'), onTap: () { Navigator.pop(ctx); _scan(); }), ListTile(leading: const Icon(Icons.key), title: const Text('Enter setup key'), onTap: () { Navigator.pop(ctx); _addManual(); })]))), icon: const Icon(Icons.add), label: const Text('Add Account'))]))
+      Padding(padding: const EdgeInsets.all(14), child: Row(children: [Text('Accounts (${accounts.length})'), const Spacer(), FilledButton.icon(onPressed: () => showModalBottomSheet(context: context, builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [if (Platform.isAndroid) ListTile(leading: const Icon(Icons.qr_code_scanner), title: const Text('Scan QR with camera'), onTap: () { Navigator.pop(ctx); _scan(); }), if (Platform.isWindows) ListTile(leading: const Icon(Icons.image_search), title: const Text('Scan QR from image'), onTap: () { Navigator.pop(ctx); _scanImage(); }), if (Platform.isWindows) ListTile(leading: const Icon(Icons.desktop_windows), title: const Text('Scan QR from screen'), onTap: () { Navigator.pop(ctx); _scanScreen(); }), ListTile(leading: const Icon(Icons.key), title: const Text('Enter setup key'), onTap: () { Navigator.pop(ctx); _addManual(); })]))), icon: const Icon(Icons.add), label: const Text('Add Account'))]))
     ]);
     if(!protectionLoaded) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     if(locked) return lockScreen();
