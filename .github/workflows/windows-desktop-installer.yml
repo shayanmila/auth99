@@ -39,6 +39,12 @@ jobs:
           flutter build windows --release --dart-define=SUPABASE_URL=$env:SUPABASE_URL --dart-define=SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY
           if ($LASTEXITCODE -ne 0) { throw "Windows build failed" }
           if (!(Test-Path 'build/windows/x64/runner/Release/easy_authenticator.exe')) { throw "Application executable missing" }
+      - name: Package portable Windows application
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath 'dist/Easy-Authenticator-Windows-x64-Portable.zip' -Force
+          if (!(Test-Path 'dist/Easy-Authenticator-Windows-x64-Portable.zip')) { throw 'Portable ZIP missing' }
       - name: Install Inno Setup
         shell: pwsh
         run: |
@@ -73,5 +79,5 @@ jobs:
           $tag = "windows-v$version-build-${{ github.run_number }}"
           $setup = Get-ChildItem 'dist\*.exe' | Select-Object -First 1
           if (!$setup) { throw "Installer missing" }
-          gh release create $tag "$($setup.FullName)" --target "${{ github.sha }}" --title "Easy Authenticator Windows $version (Build ${{ github.run_number }})" --notes "Windows x64 setup installer. Review and test before public distribution." --draft
+          gh release create $tag "$($setup.FullName)" "dist/Easy-Authenticator-Windows-x64-Portable.zip" --target "${{ github.sha }}" --title "Easy Authenticator Windows $version (Build ${{ github.run_number }})" --notes "Windows x64 installer and portable ZIP with image QR import, screen QR scanning, and manual setup key. Test before public distribution." --draft
           if ($LASTEXITCODE -ne 0) { throw "GitHub Release upload failed" }
