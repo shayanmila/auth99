@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'totp.dart';
@@ -30,6 +31,19 @@ Future<void> main() async {
     } catch (e) {
       debugPrint('Cloud sign-in unavailable; continuing in offline mode: $e');
     }
+  }
+  if (Platform.isWindows) {
+    await windowManager.ensureInitialized();
+    const options = WindowOptions(
+      size: Size(1170, 725),
+      minimumSize: Size(560, 480),
+      center: true,
+      title: 'Easy Authenticator',
+    );
+    await windowManager.waitUntilReadyToShow(options, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
   }
   runApp(const EasyAuthenticator());
 }
@@ -449,15 +463,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     ])));
   }
   @override Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= 760;
+    final wide = MediaQuery.sizeOf(context).width >= 820;
     final content = section != 0 ? _infoPage() : Column(children: [
       Padding(padding: const EdgeInsets.fromLTRB(18,18,18,8), child: Row(children: [Expanded(child: TextField(onChanged: (s) => setState(() => query = s), decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: 'Search accounts...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(14))))), const SizedBox(width: 10), IconButton(tooltip: 'Add account', onPressed: _addManual, icon: const Icon(Icons.add_circle_outline))])),
       Expanded(child: LayoutBuilder(builder: (ctx, constraints) {
         final normalizedQuery = query.trim().toLowerCase();
         final filtered = normalizedQuery.isEmpty ? List<AuthAccount>.of(accounts) : accounts.where((a) => '${a.issuer} ${a.name}'.toLowerCase().contains(normalizedQuery)).toList();
         if(filtered.isEmpty) return Center(child: Text(accounts.isEmpty ? 'No accounts yet. Add your first 2FA account.' : 'No matching accounts.'));
-        final cols = constraints.maxWidth >= 1000 ? 3 : constraints.maxWidth >= 620 ? 2 : 1;
-        return GridView.builder(padding: const EdgeInsets.all(14), gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisExtent: 205, crossAxisSpacing: 12, mainAxisSpacing: 12), itemCount: filtered.length, itemBuilder: (context,i) => _accountCard(filtered[i]));
+        final cols = constraints.maxWidth >= 1100 ? 3 : constraints.maxWidth >= 680 ? 2 : 1;
+        return GridView.builder(padding: const EdgeInsets.all(14), gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisExtent: 215, crossAxisSpacing: 12, mainAxisSpacing: 12), itemCount: filtered.length, itemBuilder: (context,i) => _accountCard(filtered[i]));
       })),
       Padding(padding: const EdgeInsets.all(14), child: Row(children: [Text('Accounts (${accounts.length})'), const Spacer(), FilledButton.icon(onPressed: () => showModalBottomSheet(context: context, builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [if (Platform.isAndroid) ListTile(leading: const Icon(Icons.qr_code_scanner), title: const Text('Scan QR with camera'), onTap: () { Navigator.pop(ctx); _scan(); }), if (Platform.isWindows) ListTile(leading: const Icon(Icons.image_search), title: const Text('Scan QR from image'), onTap: () { Navigator.pop(ctx); _scanImage(); }), if (Platform.isWindows) ListTile(leading: const Icon(Icons.desktop_windows), title: const Text('Scan QR from screen'), onTap: () { Navigator.pop(ctx); _scanScreen(); }), ListTile(leading: const Icon(Icons.key), title: const Text('Enter setup key'), onTap: () { Navigator.pop(ctx); _addManual(); })]))), icon: const Icon(Icons.add), label: const Text('Add Account'))]))
     ]);
