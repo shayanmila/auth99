@@ -89,6 +89,28 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           flutter build appbundle --release --build-name="1.0.${{ github.run_number }}" --build-number="${{ github.run_number }}" --dart-define=SUPABASE_URL=https://uuvqawlqcnrcdribwava.supabase.co --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_cXKjv4juWoZbJhV0ZUrIrQ_DwzhuENS
+      - name: Build signed Android APK with same version
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter build apk --release --build-name="1.0.${{ github.run_number }}" --build-number="${{ github.run_number }}" --dart-define=SUPABASE_URL=https://uuvqawlqcnrcdribwava.supabase.co --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_cXKjv4juWoZbJhV0ZUrIrQ_DwzhuENS
+      - name: Verify signed APK
+        run: |
+          set -eu
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
+          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          "$APK_SIGNER" verify --verbose --print-certs "$APK"
+          unzip -t "$APK" | tail -1
+      - name: Upload signed Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Easy-Authenticator-Signed-APK-${{ github.run_number }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
       - name: Verify release bundle
         run: |
           set -eu
