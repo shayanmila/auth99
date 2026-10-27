@@ -2,15 +2,6 @@ name: Play Store Signed AAB
 
 on:
   workflow_dispatch:
-    inputs:
-      version_name:
-        description: "Play Store version name (e.g. 1.0.0)"
-        required: true
-        default: "1.0.0"
-      version_code:
-        description: "Unique increasing Play Store version code"
-        required: true
-        default: "1"
 
 permissions:
   contents: read
@@ -56,7 +47,7 @@ jobs:
           if not app.exists():
               raise SystemExit('Expected Kotlin Gradle file missing')
           s = app.read_text()
-          s = s.replace('applicationId = "com.example.easy_authenticator"', 'applicationId = "com.masoomdev.easyauthenticator"')
+          s = s.replace('applicationId = "com.example.easy_authenticator"', 'applicationId = "com.masoodev.easyauthenticator"')
           s = s.replace('minSdk = flutter.minSdkVersion', 'minSdk = 26')
           s = s.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
           s = s.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 35')
@@ -97,7 +88,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          flutter build appbundle --release --build-name="${{ inputs.version_name }}" --build-number="${{ inputs.version_code }}" --dart-define=SUPABASE_URL=https://uuvqawlqcnrcdribwava.supabase.co --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_cXKjv4juWoZbJhV0ZUrIrQ_DwzhuENS
+          flutter build appbundle --release --build-name="1.0.${{ github.run_number }}" --build-number="${{ github.run_number }}" --dart-define=SUPABASE_URL=https://uuvqawlqcnrcdribwava.supabase.co --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_cXKjv4juWoZbJhV0ZUrIrQ_DwzhuENS
       - name: Verify release bundle
         run: |
           set -eu
@@ -108,7 +99,7 @@ jobs:
       - name: Upload Play Store AAB
         uses: actions/upload-artifact@v4
         with:
-          name: Easy-Authenticator-PlayStore-AAB-${{ inputs.version_code }}
+          name: Easy-Authenticator-PlayStore-AAB-${{ github.run_number }}
           path: build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 30
