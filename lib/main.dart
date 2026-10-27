@@ -456,6 +456,50 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final remaining = a.period - (now.millisecondsSinceEpoch ~/ 1000) % a.period;
     final code = totp(a, now: now);
     final label = hideCodes ? '••• •••' : (code.length == 6 ? '${code.substring(0,3)} ${code.substring(3)}' : '${code.substring(0,4)} ${code.substring(4)}');
+    if (Platform.isWindows) {
+      return Card(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Row(children: [
+              CircleAvatar(radius: 15, backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                child: Text((a.issuer.isNotEmpty ? a.issuer : a.name).substring(0, 1).toUpperCase())),
+              const SizedBox(width: 8),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(a.issuer.isEmpty ? 'Account' : a.issuer, maxLines: 1,
+                  overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(a.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall),
+              ])),
+              PopupMenuButton<String>(tooltip: 'Account options', padding: EdgeInsets.zero,
+                onSelected: (v) { if (v == 'edit') _rename(a); if (v == 'delete') _delete(a); },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'edit', child: Text('Edit name')),
+                  const PopupMenuItem(value: 'delete', child: Text('Delete account')),
+                ]),
+            ]),
+            Row(children: [
+              Expanded(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft,
+                child: Text(label, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: 1)))),
+              const SizedBox(width: 8),
+              SizedBox(width: 17, height: 17, child: CircularProgressIndicator(value: remaining / a.period, strokeWidth: 2)),
+              const SizedBox(width: 4),
+              Text('${remaining}s', style: Theme.of(context).textTheme.bodySmall),
+              IconButton(tooltip: hideCodes ? 'Reveal code' : 'Hide code', visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                onPressed: () => setState(() => hideCodes = !hideCodes),
+                icon: Icon(hideCodes ? Icons.visibility : Icons.visibility_off, size: 19)),
+              IconButton(tooltip: 'Copy code', visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                onPressed: () async { await Clipboard.setData(ClipboardData(text: code)); _message('Code copied'); },
+                icon: const Icon(Icons.copy_outlined, size: 19)),
+            ]),
+          ]),
+        ),
+      );
+    }
     return Card(clipBehavior: Clip.antiAlias, child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [CircleAvatar(backgroundColor: Theme.of(context).colorScheme.primaryContainer, child: Text((a.issuer.isNotEmpty ? a.issuer : a.name).substring(0,1).toUpperCase())), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(a.issuer.isEmpty ? 'Account' : a.issuer, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), Text(a.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)])), PopupMenuButton<String>(tooltip: 'Account options', onSelected: (v) { if(v == 'edit') _rename(a); if(v == 'delete') _delete(a); }, itemBuilder: (_) => [const PopupMenuItem(value: 'edit', child: Text('Edit name')), const PopupMenuItem(value: 'delete', child: Text('Delete account'))])]),
       const Spacer(), Center(child: FittedBox(fit: BoxFit.scaleDown, child: Text(label, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: 2)))),
@@ -470,8 +514,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final normalizedQuery = query.trim().toLowerCase();
         final filtered = normalizedQuery.isEmpty ? List<AuthAccount>.of(accounts) : accounts.where((a) => '${a.issuer} ${a.name}'.toLowerCase().contains(normalizedQuery)).toList();
         if(filtered.isEmpty) return Center(child: Text(accounts.isEmpty ? 'No accounts yet. Add your first 2FA account.' : 'No matching accounts.'));
-        final cols = constraints.maxWidth >= 1100 ? 3 : constraints.maxWidth >= 680 ? 2 : 1;
-        return GridView.builder(padding: const EdgeInsets.all(14), gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisExtent: 215, crossAxisSpacing: 12, mainAxisSpacing: 12), itemCount: filtered.length, itemBuilder: (context,i) => _accountCard(filtered[i]));
+        final cols = Platform.isWindows ? (constraints.maxWidth >= 550 ? 2 : 1) : (constraints.maxWidth >= 1100 ? 3 : constraints.maxWidth >= 680 ? 2 : 1);
+        final compact = Platform.isWindows;
+        final rowHeight = compact ? (constraints.maxHeight - 16 - 4 * 6) / 5 : 215.0;
+        return GridView.builder(padding: EdgeInsets.all(compact ? 8 : 14), gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisExtent: compact ? rowHeight.clamp(96.0, 116.0) : 215, crossAxisSpacing: compact ? 8 : 12, mainAxisSpacing: compact ? 6 : 12), itemCount: filtered.length, itemBuilder: (context,i) => _accountCard(filtered[i]));
       })),
       Padding(padding: const EdgeInsets.all(14), child: Row(children: [Text('Accounts (${accounts.length})'), const Spacer(), FilledButton.icon(onPressed: () => showModalBottomSheet(context: context, builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [if (Platform.isAndroid) ListTile(leading: const Icon(Icons.qr_code_scanner), title: const Text('Scan QR with camera'), onTap: () { Navigator.pop(ctx); _scan(); }), if (Platform.isWindows) ListTile(leading: const Icon(Icons.image_search), title: const Text('Scan QR from image'), onTap: () { Navigator.pop(ctx); _scanImage(); }), if (Platform.isWindows) ListTile(leading: const Icon(Icons.desktop_windows), title: const Text('Scan QR from screen'), onTap: () { Navigator.pop(ctx); _scanScreen(); }), ListTile(leading: const Icon(Icons.key), title: const Text('Enter setup key'), onTap: () { Navigator.pop(ctx); _addManual(); })]))), icon: const Icon(Icons.add), label: const Text('Add Account'))]))
     ]);
