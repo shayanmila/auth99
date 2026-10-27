@@ -20,6 +20,8 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
+; Use the same icon embedded in the Windows application executable.
+SetupIconFile=..\dist\EasyAuthenticator.ico
 LicenseFile=..\legal\TERMS-OF-USE.txt
 UninstallDisplayName=Easy Authenticator
 CloseApplications=yes
