@@ -1,0 +1,65 @@
+name: Windows Desktop Installer (x64)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-installer:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Enable Windows desktop
+        shell: pwsh
+        run: |
+          flutter config --enable-windows-desktop
+          flutter create --platforms=windows --project-name easy_authenticator .
+          if ($LASTEXITCODE -ne 0) { throw "Flutter Windows project generation failed" }
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw "Dependency resolution failed" }
+      - name: Test authenticator
+        shell: pwsh
+        run: |
+          flutter test test/totp_test.dart
+          if ($LASTEXITCODE -ne 0) { throw "Tests failed" }
+      - name: Build Windows app
+        shell: pwsh
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          flutter build windows --release --dart-define=SUPABASE_URL=$env:SUPABASE_URL --dart-define=SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY
+          if ($LASTEXITCODE -ne 0) { throw "Windows build failed" }
+          if (!(Test-Path 'build/windows/x64/runner/Release/easy_authenticator.exe')) { throw "Application executable missing" }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+      - name: Compile modern installer with license agreement
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)').Matches.Groups[1].Value -split '\+')[0]
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "ISCC.exe missing" }
+          & $iscc "/DAppVersion=$version" "installer\EasyAuthenticator.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
+          $setup = Get-ChildItem 'dist\*.exe' | Select-Object -First 1
+          if (!$setup -or $setup.Length -lt 100000) { throw "Installer missing or too small" }
+          Get-FileHash $setup.FullName -Algorithm SHA256
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Easy-Authenticator-Windows-x64-Setup
+          path: dist/*.exe
+          if-no-files-found: error
+          retention-days: 30
