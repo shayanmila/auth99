@@ -1,27 +1,46 @@
 # Easy Authenticator — Play Store release
 
-## Signed Android App Bundle
+## Branding and identity
+- App display name: **Easy Authenticator**
+- Developer: **MasoomDev**
+- Android Play Store application ID: `com.masoodev.easyauthenticator`
+- AAB version name: `1.0.<workflow run number>`
+- AAB version code: workflow run number (increments with each NEW AAB workflow run).
+- Play Store package ID is permanent once published. Do not change it after first upload.
 
-Run **Actions → Play Store Signed AAB → Run workflow**. Supply the Play Store version name and a unique, increasing version code. Download the AAB from the completed workflow's **Artifacts** section.
+## Create a dedicated upload keystore on Windows
+Use an installed JDK's `keytool` in PowerShell:
 
-The workflow requires these four GitHub Actions repository secrets:
+```powershell
+keytool -genkeypair -v -keystore "$env:USERPROFILE\easy-authenticator-upload.jks" -alias easy-auth-upload -keyalg RSA -keysize 3072 -validity 10000
+```
 
-- `ANDROID_KEYSTORE_BASE64` — base64-encoded upload keystore (.jks)
-- `ANDROID_KEYSTORE_PASSWORD` — keystore password
-- `ANDROID_KEY_ALIAS` — upload key alias
-- `ANDROID_KEY_PASSWORD` — upload key password
+Follow the interactive prompts to set a strong password. Store the .jks and passwords offline in a secure backup. Do not share passwords or keystore files in chat.
 
-Keep the original upload keystore backed up securely. Never commit the keystore or passwords. The AAB workflow fails early if any signing secret is missing. It does **not** use a debug key or generate a new signing identity on every run.
+Convert the keystore to Base64 on Windows:
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$env:USERPROFILE\easy-authenticator-upload.jks")) | Set-Clipboard
+```
+Paste that clipboard content **directly** into the GitHub repository secret `ANDROID_KEYSTORE_BASE64`. Do not commit or share it.
 
-Proposed Android package ID: `com.masoomdev.easyauthenticator`. Confirm this identifier is the one you want **before first Play Console upload**. Google Play package IDs cannot be changed for an existing app.
+## GitHub Actions repository secrets
+Add in Settings > Secrets and variables > Actions:
+1. `ANDROID_KEYSTORE_BASE64` — Base64 of the .jks
+2. `ANDROID_KEYSTORE_PASSWORD` — keystore password
+3. `ANDROID_KEY_ALIAS` — `easy-auth-upload`
+4. `ANDROID_KEY_PASSWORD` — key password (usually same as keystore password if configured so)
 
-The normal `build.yml` workflow still produces testing APK and Windows ZIP on pushes. The Play Store AAB workflow runs **only manually**, to avoid unnecessary release builds.
+## Generate AAB
+Go to Actions > **Play Store Signed AAB** > Run workflow. This workflow is **manual only**.
+- It checks required signing secrets, builds the AAB, verifies its signature and uploads an artifact.
+- Each **new workflow run** uses its own increasing version code and version name. A rerun of the same workflow run reuses the code; don't upload both.
+- If Play Console has an existing version code equal to or greater than the generated code, the workflow must be adjusted to start from a higher baseline before uploading.
+- Do not create a fresh keystore for subsequent versions. Reuse the original upload key.
 
-## Pre-publication checklist
-
-- Test on a real Android device: create/import accounts, scan QR, TOTP accuracy, copy, lock/unlock, background/foreground behavior, encrypted backup and restore.
-- Test cloud restore with a second device and the same cloud account. Do not claim fully automatic cross-device synchronization unless verified.
-- Review the live privacy policy, data safety disclosures, account deletion route, store listing, app icon and screenshots.
-- Ensure Play Console's target API level and testing eligibility requirements are satisfied at submission time.
-- Keep a separate copy of recovery codes and original authenticator while testing.
-
+## Final publishing checks
+- Verify AAB on Play Console Internal Testing first.
+- Test TOTP, QR, PIN/biometrics, cloud login, encrypted backup and manual restore on Android and Windows.
+- Optional encrypted cloud backup exists, but automatic bidirectional cross-device synchronization is not verified.
+- Ensure privacy policy, account deletion method, Play Data Safety, permissions, screenshots and app icon meet Play Console requirements.
+- Existing test APK may use a different package ID; export and verify an encrypted backup before migrating.
+- Keep independent 2FA recovery methods and do not remove your existing authenticator until tested.
